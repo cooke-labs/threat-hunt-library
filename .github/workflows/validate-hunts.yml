@@ -1,0 +1,77 @@
+# Stands up a fresh Elasticsearch, loads the public OTRF APT29 day-1 dataset,
+# runs every hunt's queries exactly as written, and fails if any hit count
+# differs from what the hunt's write-up claims.
+
+name: Validate hunts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      elasticsearch:
+        image: elasticsearch:8.17.0
+        env:
+          discovery.type: single-node
+          xpack.security.enabled: "false"
+          ES_JAVA_OPTS: -Xms2g -Xmx2g
+        ports:
+          - 9200:9200
+        options: >-
+          --health-cmd "curl -fs http://localhost:9200/_cluster/health?wait_for_status=yellow"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      ES_URL: http://localhost:9200
+      HUNT_RUN_LABEL: github-actions
+      DATASET_URL: https://raw.githubusercontent.com/OTRF/Security-Datasets/master/datasets/compound/apt29/day1/apt29_evals_day1_manual.zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Cache dataset
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: data/apt29_day1.zip
+          key: otrf-apt29-day1-v1
+
+      - name: Download OTRF APT29 day 1
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p data
+          curl -fsSL "$DATASET_URL" -o data/apt29_day1.zip
+
+      - name: Load dataset into Elasticsearch
+        working-directory: scripts
+        run: python3 load_otrf.py ../data/apt29_day1.zip --index otrf-apt29-day1 --recreate
+
+      - name: Run hunts
+        working-directory: scripts
+        run: python3 run_hunts.py
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunt-results
+          path: results/*.json

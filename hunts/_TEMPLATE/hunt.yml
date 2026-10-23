@@ -1,0 +1,22 @@
+# Copy this folder to hunts/H-00X-<slug>/ and fill it in.
+# Write each query in Kibana first (Discover, Lucene mode), then paste it here.
+# Set `expect` to the count you observed and explained in README.md.
+
+id: H-00X
+title: <short title>
+attack: [T____]
+index: otrf-apt29-day1
+sort: UtcTime.keyword
+fields: [UtcTime, Hostname, EventID, User, Image, CommandLine, ParentImage, ProcessGuid, ParentProcessGuid]
+
+queries:
+  - name: q1-scope
+    purpose: The whole population for this technique. Stack it to find what's rare.
+    lucene: 'EventID:1 AND Image:"example.exe"'
+    stack: [Image.keyword]        # optional: one or more .keyword fields
+    expect: {min_hits: 1}         # or {hits: N} once you know the exact number
+
+  - name: q2-signal
+    purpose: The narrowed signal.
+    lucene: '...'
+    expect: {hits: 0}

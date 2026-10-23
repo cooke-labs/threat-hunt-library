@@ -1,0 +1,56 @@
+# Machine-readable half of hunt H-001. scripts/run_hunts.py executes every
+# query below exactly as written and checks the hit count against `expect`.
+# The write-up (README.md in this folder) explains each step.
+
+id: H-001
+title: LSASS memory access from unbacked code
+attack: [T1003.001]
+index: otrf-apt29-day1
+sort: UtcTime.keyword
+fields: [UtcTime, Hostname, EventID, User, SourceImage, SourceProcessGUID, GrantedAccess,
+         CallTrace, Image, CommandLine, ParentImage, ProcessGuid, ParentProcessGuid]
+
+queries:
+  - name: q1-scope
+    purpose: Every process that opened a handle to LSASS. This is the population to stack.
+    lucene: 'EventID:10 AND TargetImage:"lsass.exe"'
+    stack: [SourceImage.keyword, GrantedAccess.keyword]
+    expect: {hits: 326}
+
+  - name: q2-unbacked-calltrace
+    purpose: >-
+      Handle opened from memory that is not backed by a file on disk (UNKNOWN in the
+      call stack). Signal for reflectively loaded tools such as in-memory Mimikatz.
+    lucene: 'EventID:10 AND TargetImage:"lsass.exe" AND CallTrace:"unknown"'
+    stack: [SourceImage.keyword, GrantedAccess.keyword]
+    expect: {hits: 9}
+
+  - name: q3-high-access-mask
+    purpose: >-
+      Handle requested with rights that allow reading LSASS memory. 0x1010 and 0x1410
+      are the classic Mimikatz masks; 0x1fffff and 0x1f3fff are full or near-full access.
+    lucene: 'EventID:10 AND TargetImage:"lsass.exe" AND GrantedAccess:(0x1fffff OR 0x1f3fff OR 0x1010 OR 0x1410 OR 0x1438 OR 0x143a)'
+    stack: [SourceImage.keyword, GrantedAccess.keyword]
+    expect: {hits: 5}
+
+  - name: q4-tuned-detection
+    purpose: >-
+      Both signals together. Each one alone has false positives; the intersection
+      has none in this dataset. This is the candidate detection rule.
+    lucene: 'EventID:10 AND TargetImage:"lsass.exe" AND CallTrace:"unknown" AND GrantedAccess:(0x1fffff OR 0x1f3fff OR 0x1010 OR 0x1410 OR 0x1438 OR 0x143a)'
+    stack: [Hostname.keyword, SourceImage.keyword]
+    expect: {hits: 3}
+
+  - name: q5-pivot-children
+    purpose: >-
+      Pivot from the hit on SCRANTON. What did the dumping PowerShell process launch?
+      Real intrusions have neighbors.
+    lucene: 'EventID:1 AND ParentProcessGuid.keyword:"{47ab858c-e1e4-5eac-b803-000000000400}"'
+    expect: {hits: 4}
+
+  - name: q6-pivot-same-chain-low-mask
+    purpose: >-
+      The child PowerShell from q5 also touched LSASS, but with a low-privilege mask
+      (0x1000) that q4 deliberately ignores. Found by pivot, not by the rule.
+    lucene: 'EventID:10 AND TargetImage:"lsass.exe" AND SourceProcessGUID.keyword:"{47ab858c-e23d-5eac-c603-000000000400}"'
+    expect: {hits: 2}

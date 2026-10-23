@@ -1,0 +1,35 @@
+title: LSASS Access With High Rights From Unbacked Memory
+id: 3a29ebd3-abee-4c52-969b-bb63d06092f0
+status: experimental
+description: >-
+  Detects a process opening a handle to LSASS with rights that allow reading its memory,
+  where the call stack includes code not backed by a file on disk. Typical of in-memory
+  credential dumping (reflectively loaded Mimikatz and similar). Derived from hunt H-001.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://github.com/OTRF/Security-Datasets/tree/master/datasets/compound/apt29
+author: Michael Cooke
+date: 2026-10-24
+tags:
+  - attack.credential-access
+  - attack.t1003.001
+logsource:
+  product: windows
+  category: process_access
+detection:
+  selection_target:
+    TargetImage|endswith: '\lsass.exe'
+  selection_unbacked:
+    CallTrace|contains: 'UNKNOWN'
+  selection_rights:
+    GrantedAccess:
+      - '0x1fffff'
+      - '0x1f3fff'
+      - '0x1010'
+      - '0x1410'
+      - '0x1438'
+      - '0x143a'
+  condition: selection_target and selection_unbacked and selection_rights
+falsepositives:
+  - Security or backup agents that inject into LSASS (validate by signer and full path before excluding)
+level: high
